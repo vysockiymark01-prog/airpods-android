@@ -11,6 +11,10 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    # `secrets` can't be referenced directly in step `if:` conditions — mirror the one we need
+    # into env so the presence check below is legal.
+    env:
+      HAS_RELEASE_KEYSTORE: ${{ secrets.RELEASE_KEYSTORE_BASE64 != '' }}
     steps:
       - uses: actions/checkout@v4
 
@@ -41,11 +45,11 @@ jobs:
       # Actions): RELEASE_KEYSTORE_BASE64, RELEASE_KEYSTORE_PASSWORD, RELEASE_KEY_ALIAS,
       # RELEASE_KEY_PASSWORD. See README "CI/CD" for how to generate and add these.
       - name: Decode release keystore
-        if: ${{ secrets.RELEASE_KEYSTORE_BASE64 != '' }}
+        if: env.HAS_RELEASE_KEYSTORE == 'true'
         run: echo "${{ secrets.RELEASE_KEYSTORE_BASE64 }}" | base64 -d > release.keystore
 
       - name: Build release AAB
-        if: ${{ secrets.RELEASE_KEYSTORE_BASE64 != '' }}
+        if: env.HAS_RELEASE_KEYSTORE == 'true'
         env:
           RELEASE_KEYSTORE_PATH: ${{ github.workspace }}/release.keystore
           RELEASE_KEYSTORE_PASSWORD: ${{ secrets.RELEASE_KEYSTORE_PASSWORD }}
@@ -54,7 +58,7 @@ jobs:
         run: gradle bundleRelease
 
       - name: Upload release AAB
-        if: ${{ secrets.RELEASE_KEYSTORE_BASE64 != '' }}
+        if: env.HAS_RELEASE_KEYSTORE == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: app-release-aab
