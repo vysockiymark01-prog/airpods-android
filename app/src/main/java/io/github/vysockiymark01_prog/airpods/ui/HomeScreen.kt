@@ -11,11 +11,15 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import android.content.Intent
+import android.net.Uri
 import androidx.compose.material3.Button
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -61,7 +65,7 @@ fun HomeScreen(viewModel: MainViewModel, onRequestPermissions: () -> Unit) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceEvenly,
-            ) {
+                ) {
                     BatteryIndicator("Левый", status.leftBattery, status.leftCharging)
                     BatteryIndicator("Правый", status.rightBattery, status.rightCharging)
                     BatteryIndicator("Кейс", status.caseBattery, status.caseCharging)
@@ -77,10 +81,10 @@ fun HomeScreen(viewModel: MainViewModel, onRequestPermissions: () -> Unit) {
                     AnimatedVisibility(visible = uiState.lastAncCommandFailed, enter = fadeIn(), exit = fadeOut()) {
                         Text(
                             text = "Не удалось отправить команду — проверьте, что наушники подключены как аудио-устройство",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.error,
-                        modifier = Modifier.padding(top = 12.dp),
-                    )
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.error,
+                            modifier = Modifier.padding(top = 12.dp),
+                        )
                     }
                 } else {
                     Text(
@@ -90,7 +94,28 @@ fun HomeScreen(viewModel: MainViewModel, onRequestPermissions: () -> Unit) {
                     )
                 }
             }
+
+            Spacer(Modifier.height(24.dp))
+            ReportProblemButton()
         }
+    }
+}
+
+/**
+ * Required in-app reporting path for the Play Console "Child Safety Standards" declaration —
+ * even though this app has no user-to-user communication, Google requires a way to report
+ * problems without leaving the app. See docs/privacy.html "Child Safety Standards" section.
+ */
+@Composable
+private fun ReportProblemButton() {
+    val context = LocalContext.current
+    TextButton(onClick = {
+        val intent = Intent(Intent.ACTION_SENDTO, Uri.parse("mailto:vysockiymark01@gmail.com")).apply {
+            putExtra(Intent.EXTRA_SUBJECT, "AirPods для Android — сообщение о проблеме")
+        }
+        runCatching { context.startActivity(intent) }
+    }) {
+        Text("✉️ Сообщить о проблеме")
     }
 }
 
