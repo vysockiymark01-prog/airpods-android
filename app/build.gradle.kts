@@ -12,7 +12,7 @@ android {
         applicationId = "io.github.vysockiymark01_prog.airpods"
         minSdk = 26 // BLE scan filters + foreground service type require modern APIs; L2CAP CoC needs API 29 (guarded at runtime)
         targetSdk = 35
-        versionCode = 1
+        versionCode = 2
         versionName = "0.1.0-mvp"
     }
 
