@@ -20,6 +20,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.unit.dp
 import io.github.vysockiymark01_prog.airpods.MainViewModel
 import io.github.vysockiymark01_prog.airpods.ble.AirPodsStatus
@@ -59,7 +61,7 @@ fun HomeScreen(viewModel: MainViewModel, onRequestPermissions: () -> Unit) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceEvenly,
-                ) {
+            ) {
                     BatteryIndicator("Левый", status.leftBattery, status.leftCharging)
                     BatteryIndicator("Правый", status.rightBattery, status.rightCharging)
                     BatteryIndicator("Кейс", status.caseBattery, status.caseCharging)
@@ -75,10 +77,10 @@ fun HomeScreen(viewModel: MainViewModel, onRequestPermissions: () -> Unit) {
                     AnimatedVisibility(visible = uiState.lastAncCommandFailed, enter = fadeIn(), exit = fadeOut()) {
                         Text(
                             text = "Не удалось отправить команду — проверьте, что наушники подключены как аудио-устройство",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.error,
-                            modifier = Modifier.padding(top = 12.dp),
-                        )
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.error,
+                        modifier = Modifier.padding(top = 12.dp),
+                    )
                     }
                 } else {
                     Text(
