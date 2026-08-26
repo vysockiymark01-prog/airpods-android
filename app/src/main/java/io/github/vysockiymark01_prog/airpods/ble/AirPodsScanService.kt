@@ -18,6 +18,10 @@ import android.os.SystemClock
 import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.LifecycleService
+import androidx.lifecycle.lifecycleScope
+import io.github.vysockiymark01_prog.airpods.audio.EqualizerPreferences
+import io.github.vysockiymark01_prog.airpods.audio.SystemEqualizerController
+import kotlinx.coroutines.launch
 import io.github.vysockiymark01_prog.airpods.MainActivity
 import io.github.vysockiymark01_prog.airpods.R
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -71,11 +75,28 @@ class AirPodsScanService : LifecycleService() {
         createNotificationChannel()
         startForeground(NOTIFICATION_ID, buildNotification())
         startScanIfPermitted()
+        startEqualizer()
     }
 
     override fun onDestroy() {
         stopScan()
+        SystemEqualizerController.release()
         super.onDestroy()
+    }
+
+    /**
+     * Owns the global equalizer/bass-boost for as long as this service is alive, which is what
+     * makes it keep applying with the app UI closed — see [SystemEqualizerController] doc. Reads
+     * the saved setting itself (rather than waiting for the Activity to push it) so a reboot or a
+     * process restart still restores whatever the user last chose the moment this service starts.
+     */
+    private fun startEqualizer() {
+        SystemEqualizerController.ensureInitialized()
+        lifecycleScope.launch {
+            EqualizerPreferences.flow(applicationContext).collect { state ->
+                SystemEqualizerController.apply(state)
+            }
+        }
     }
 
     private fun hasScanPermission(): Boolean {

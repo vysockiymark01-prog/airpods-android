@@ -14,6 +14,9 @@ import androidx.compose.foundation.layout.padding
 import android.content.Intent
 import android.net.Uri
 import androidx.compose.material3.Button
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
@@ -33,11 +36,27 @@ import io.github.vysockiymark01_prog.airpods.ble.BatteryLevel
 import io.github.vysockiymark01_prog.airpods.ble.NoiseControlMode
 import android.os.SystemClock
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun HomeScreen(viewModel: MainViewModel, onRequestPermissions: () -> Unit) {
+fun HomeScreen(
+    viewModel: MainViewModel,
+    onRequestPermissions: () -> Unit,
+    onOpenEqualizer: () -> Unit,
+) {
     val uiState by viewModel.uiState.collectAsState()
 
-    Scaffold { padding ->
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text("AirPods для Android") },
+                actions = {
+                    IconButton(onClick = onOpenEqualizer) {
+                        Text("🎚️")
+                    }
+                },
+            )
+        },
+    ) { padding ->
         Column(
             modifier = Modifier
                 .fillMaxSize()

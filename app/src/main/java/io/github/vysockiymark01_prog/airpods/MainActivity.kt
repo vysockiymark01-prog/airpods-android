@@ -11,7 +11,11 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.navigation.compose.NavHost
+import androidx.navigation.compose.composable
+import androidx.navigation.compose.rememberNavController
 import io.github.vysockiymark01_prog.airpods.ble.AirPodsScanService
+import io.github.vysockiymark01_prog.airpods.ui.EqualizerScreen
 import io.github.vysockiymark01_prog.airpods.ui.HomeScreen
 import io.github.vysockiymark01_prog.airpods.ui.theme.AirPodsTheme
 
@@ -39,7 +43,19 @@ class MainActivity : ComponentActivity() {
         setContent {
             val uiState by viewModel.uiState.collectAsState()
             AirPodsTheme(themeMode = uiState.themeMode) {
-                HomeScreen(viewModel = viewModel, onRequestPermissions = { requestPermissions() })
+                val navController = rememberNavController()
+                NavHost(navController = navController, startDestination = "home") {
+                    composable("home") {
+                        HomeScreen(
+                            viewModel = viewModel,
+                            onRequestPermissions = { requestPermissions() },
+                            onOpenEqualizer = { navController.navigate("equalizer") },
+                        )
+                    }
+                    composable("equalizer") {
+                        EqualizerScreen(onBack = { navController.popBackStack() })
+                    }
+                }
             }
         }
     }
