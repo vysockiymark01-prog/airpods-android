@@ -1,0 +1,7 @@
+<resources>
+    <!-- Compose owns all real theming (see ui/theme/Theme.kt); this is just the launch/manifest
+         theme so the system has something valid before Compose content is set. -->
+    <style name="Theme.AirPods" parent="android:Theme.Material.Light.NoActionBar">
+        <item name="android:statusBarColor">@android:color/transparent</item>
+    </style>
+</resources>

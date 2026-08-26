@@ -1,0 +1,5 @@
+<resources>
+    <string name="app_name">AirPods для Android</string>
+    <string name="notification_channel_name">Мониторинг наушников</string>
+    <string name="notification_monitoring_title">Отслеживание заряда и статуса наушников</string>
+</resources>
