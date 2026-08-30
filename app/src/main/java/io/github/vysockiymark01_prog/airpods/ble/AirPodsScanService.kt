@@ -24,6 +24,8 @@ import io.github.vysockiymark01_prog.airpods.audio.SystemEqualizerController
 import kotlinx.coroutines.launch
 import io.github.vysockiymark01_prog.airpods.MainActivity
 import io.github.vysockiymark01_prog.airpods.R
+import io.github.vysockiymark01_prog.airpods.widget.AirPodsWidget
+import androidx.glance.appwidget.updateAll
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -96,6 +98,7 @@ class AirPodsScanService : LifecycleService() {
                 updateOngoingNotification(merged)
                 checkLowBattery(merged)
                 lifecycleScope.launch { BatteryHistoryStore.record(applicationContext, merged) }
+                lifecycleScope.launch { AirPodsWidget().updateAll(applicationContext) }
             }
         }
 
