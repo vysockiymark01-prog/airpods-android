@@ -32,6 +32,14 @@ sealed class AacpSendResult {
  *    fully documented publicly. We send the raw control packet directly; if the device silently
  *    ignores it, [sendNoiseControlMode] still reports [AacpSendResult.Success] (the write didn't
  *    throw) but the mode may not actually change — this asymmetry is called out in the UI.
+ *
+ * Connection mode: we try an *insecure* L2CAP channel first (no pairing/encryption renegotiation,
+ * fastest), and if that fails, retry with a *secure* channel. This matters because Android's
+ * insecure-L2CAP client path is known to fail on some OEM Bluetooth stacks with a generic
+ * "read failed, socket might closed or timeout, read ret: -1" error even though the remote device
+ * is reachable and willing to accept a connection — that message comes from Android's own BT
+ * stack refusing/dropping the socket, not from the earbuds. The secure path exercises a different
+ * code path in the stack and succeeds on some of the devices where insecure fails.
  */
 class AacpController(private val device: BluetoothDevice) {
 
@@ -43,17 +51,41 @@ class AacpController(private val device: BluetoothDevice) {
     }
 
     @SuppressLint("MissingPermission") // caller is required to have checked BLUETOOTH_CONNECT
+    private fun openSocket(secure: Boolean): BluetoothSocket =
+        if (secure) device.createL2capChannel(AACP_L2CAP_PSM) else device.createInsecureL2capChannel(AACP_L2CAP_PSM)
+
+    @SuppressLint("MissingPermission")
+    private suspend fun tryConnect(secure: Boolean): Result<BluetoothSocket> = withContext(Dispatchers.IO) {
+        try {
+            val s = openSocket(secure)
+            s.connect()
+            Result.success(s)
+        } catch (e: IOException) {
+            Log.w(TAG, "${if (secure) "Secure" else "Insecure"} L2CAP connect failed for ${device.address}: ${e.message}")
+            Result.failure(IOException(e.message ?: e.javaClass.simpleName, e))
+        }
+    }
+
+    @SuppressLint("MissingPermission")
     private suspend fun ensureConnected(): Result<BluetoothSocket> = withContext(Dispatchers.IO) {
         socket?.takeIf { it.isConnected }?.let { return@withContext Result.success(it) }
         try {
-            val s = device.createInsecureL2capChannel(AACP_L2CAP_PSM)
-            s.connect()
-            socket = s
-            Result.success(s)
-        } catch (e: IOException) {
-            val reason = "не удалось открыть L2CAP-канал (${e.message ?: e.javaClass.simpleName})"
-            Log.w(TAG, "L2CAP connect failed for ${device.address}: ${e.message}")
-            Result.failure(IOException(reason, e))
+            val insecureResult = tryConnect(secure = false)
+            insecureResult.getOrNull()?.let {
+                socket = it
+                return@withContext Result.success(it)
+            }
+            val secureResult = tryConnect(secure = true)
+            secureResult.getOrNull()?.let {
+                socket = it
+                return@withContext Result.success(it)
+            }
+            val insecureMsg = insecureResult.exceptionOrNull()?.message ?: "?"
+            val secureMsg = secureResult.exceptionOrNull()?.message ?: "?"
+            val reason = "не удалось открыть L2CAP-канал ни в незащищённом (\"$insecureMsg\"), " +
+                "ни в защищённом режиме (\"$secureMsg\") — проверьте, что наушники сопряжены и " +
+                "подключены как аудиоустройство в системных настройках Bluetooth"
+            Result.failure(IOException(reason))
         } catch (e: SecurityException) {
             Log.w(TAG, "Missing BLUETOOTH_CONNECT permission", e)
             Result.failure(SecurityException("нет разрешения BLUETOOTH_CONNECT", e))

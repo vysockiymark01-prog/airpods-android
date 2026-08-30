@@ -110,8 +110,17 @@ object ProximityPairingParser {
         }
 
         val podByte = bytes[6].toInt() and 0xFF
-        val rightRaw = (podByte shr 4) and 0xF
-        val leftRaw = podByte and 0xF
+        val highNibble = (podByte shr 4) and 0xF
+        val lowNibble = podByte and 0xF
+        // Just like the charging flags below, this nibble pair is "primary pod" / "secondary pod",
+        // not "right pod" / "left pod" directly — which physical earbud is primary (the one whose
+        // radio is currently broadcasting) changes over time. The previous version of this parser
+        // ignored that and always read the high nibble as the right pod's battery, which silently
+        // swapped left/right (and therefore also showed the wrong number under the wrong earbud)
+        // every time the non-default pod happened to be primary. Same primary/secondary bit as
+        // leftIsPrimary above.
+        val rightRaw = if (leftIsPrimary) lowNibble else highNibble
+        val leftRaw = if (leftIsPrimary) highNibble else lowNibble
 
         val caseAndChargeByte = bytes[7].toInt() and 0xFF
         val caseRaw = (caseAndChargeByte shr 4) and 0xF

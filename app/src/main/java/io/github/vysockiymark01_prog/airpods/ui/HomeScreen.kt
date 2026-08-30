@@ -12,6 +12,8 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.horizontalScroll
 import android.content.Intent
 import android.net.Uri
 import androidx.compose.foundation.clickable
@@ -216,7 +218,14 @@ private fun EmptyState(onRequestPermissions: () -> Unit) {
 @Composable
 private fun NoiseControlSelector(sending: Boolean, onSelect: (NoiseControlMode) -> Unit) {
     var selected by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(NoiseControlMode.ANC) }
-    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+    // 4 chips don't reliably fit on one line on narrower phones — without this, the last chip
+    // ("Авто") gets squeezed against the screen edge and shows as an empty-looking sliver with its
+    // label clipped off, instead of wrapping or resizing. Scrolling keeps every chip fully visible
+    // and fully readable regardless of screen width.
+    Row(
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        modifier = Modifier.horizontalScroll(rememberScrollState()),
+    ) {
         val options = listOf(
             NoiseControlMode.OFF to "Выкл",
             NoiseControlMode.TRANSPARENCY to "Прозрачность",

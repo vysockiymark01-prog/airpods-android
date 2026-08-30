@@ -1,5 +1,6 @@
 package io.github.vysockiymark01_prog.airpods.ui
 
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -8,6 +9,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -28,6 +30,9 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.layout.layout
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import io.github.vysockiymark01_prog.airpods.EqualizerViewModel
@@ -39,8 +44,9 @@ import io.github.vysockiymark01_prog.airpods.audio.EqualizerPreset
  * [io.github.vysockiymark01_prog.airpods.audio.PerSessionEqualizerController] for what this
  * actually does and, honestly, what it doesn't (it is not Apple's Adaptive Audio).
  *
- * The whole screen is one scrollable column — including the 10 band sliders — so nothing gets
- * stuck in a cramped, separately-scrolling sub-area at the bottom of the screen.
+ * The whole screen is one scrollable column, and the 10 band sliders are vertical (fader-style,
+ * like a classic graphic-EQ app) laid out side by side in their own horizontally-scrollable strip
+ * — closer to what people expect from an equalizer than a stack of horizontal sliders.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -107,7 +113,7 @@ fun EqualizerScreen(onBack: () -> Unit, viewModel: EqualizerViewModel = viewMode
                 valueRange = 0f..1000f,
             )
 
-            Spacer(Modifier.height(16.dp))
+            Spacer(Modifier.height(24.dp))
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -116,26 +122,84 @@ fun EqualizerScreen(onBack: () -> Unit, viewModel: EqualizerViewModel = viewMode
                 Text("Полосы эквалайзера (10)", style = MaterialTheme.typography.titleSmall)
                 TextButton(onClick = viewModel::resetToFlat) { Text("Сбросить") }
             }
-            Spacer(Modifier.height(4.dp))
+            Spacer(Modifier.height(8.dp))
 
-            uiState.bandCenterFreqHz.forEachIndexed { index, freq ->
-                val level = uiState.state.bandLevelsMb.getOrElse(index) { 0 }
-                Column(modifier = Modifier.padding(vertical = 4.dp)) {
-                    Text(
-                        text = "${formatFreq(freq)} · ${formatDb(level)}",
-                        style = MaterialTheme.typography.bodySmall,
-                    )
-                    Slider(
-                        value = level.toFloat(),
-                        onValueChange = { viewModel.setBandLevel(index, it.toInt()) },
-                        valueRange = uiState.bandLevelRangeMb.first.toFloat()..
-                            uiState.bandLevelRangeMb.last.toFloat(),
-                    )
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                uiState.bandCenterFreqHz.forEachIndexed { index, freq ->
+                    val level = uiState.state.bandLevelsMb.getOrElse(index) { 0 }
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        modifier = Modifier.width(56.dp),
+                    ) {
+                        Text(
+                            text = formatDb(level),
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                        Spacer(Modifier.height(4.dp))
+                        VerticalSlider(
+                            value = level.toFloat(),
+                            onValueChange = { viewModel.setBandLevel(index, it.toInt()) },
+                            valueRange = uiState.bandLevelRangeMb.first.toFloat()..
+                                uiState.bandLevelRangeMb.last.toFloat(),
+                        )
+                        Spacer(Modifier.height(4.dp))
+                        Text(
+                            text = formatFreq(freq),
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                    }
                 }
             }
             Spacer(Modifier.height(32.dp))
         }
     }
+}
+
+/**
+ * A fader-style vertical slider — Compose's `Slider` is horizontal-only, so this rotates one 270°
+ * and swaps its measured width/height via a custom [Modifier.layout] so the rotated slider still
+ * gets a correctly-sized (tall, narrow) box instead of the unrotated (wide, short) footprint
+ * `graphicsLayer` alone would leave behind.
+ */
+@Composable
+private fun VerticalSlider(
+    value: Float,
+    onValueChange: (Float) -> Unit,
+    valueRange: ClosedFloatingPointRange<Float>,
+) {
+    Slider(
+        value = value,
+        onValueChange = onValueChange,
+        valueRange = valueRange,
+        modifier = Modifier
+            .width(150.dp)
+            .height(28.dp)
+            .graphicsLayer {
+                rotationZ = 270f
+                transformOrigin = TransformOrigin(0f, 0f)
+            }
+            .layout { measurable, constraints ->
+                val placeable = measurable.measure(
+                    androidx.compose.ui.unit.Constraints(
+                        minWidth = constraints.minHeight,
+                        maxWidth = constraints.maxHeight,
+                        minHeight = constraints.minWidth,
+                        maxHeight = constraints.maxWidth,
+                    ),
+                )
+                layout(placeable.height, placeable.width) {
+                    placeable.place(
+                        x = -(placeable.width / 2 - placeable.height / 2),
+                        y = -(placeable.height / 2 - placeable.width / 2),
+                    )
+                }
+            },
+    )
 }
 
 @Composable
