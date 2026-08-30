@@ -11,7 +11,9 @@ import android.bluetooth.le.ScanCallback
 import android.bluetooth.le.ScanResult
 import android.bluetooth.le.ScanSettings
 import android.content.Context
+import android.content.BroadcastReceiver
 import android.content.Intent
+import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.SystemClock
@@ -85,6 +87,23 @@ class AirPodsScanService : LifecycleService() {
     // single reading while sitting under the threshold — cleared once a component recovers.
     private val lowBatteryAlerted = mutableSetOf<String>()
 
+    // onCreate() only gets ONE chance to start the scan. Without this flag+receiver, a service
+    // that first starts while permission isn't granted yet, or while Bluetooth is off, would
+    // never scan for the rest of its life — nothing else ever calls startScanIfPermitted() again,
+    // even after the user grants the permission or flips Bluetooth on. That silent "worked once,
+    // now shows nothing forever until the app/service is fully killed and relaunched" is exactly
+    // the symptom this fixes: both onStartCommand (every time the app calls start(context), e.g.
+    // right after a permission grant) and a Bluetooth on/off broadcast receiver now retry it.
+    private var isScanning = false
+
+    private val bluetoothStateReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context, intent: Intent) {
+            if (intent.getIntExtra(BluetoothAdapter.EXTRA_STATE, -1) == BluetoothAdapter.STATE_ON) {
+                startScanIfPermitted()
+            }
+        }
+    }
+
     private val scanCallback = object : ScanCallback() {
         @Suppress("MissingPermission") // guarded by hasScanPermission() before the scan is started
         override fun onScanResult(callbackType: Int, result: ScanResult) {
@@ -112,12 +131,29 @@ class AirPodsScanService : LifecycleService() {
         super.onCreate()
         createNotificationChannels()
         startForeground(NOTIFICATION_ID, buildNotification(null))
+        ContextCompat.registerReceiver(
+            this,
+            bluetoothStateReceiver,
+            IntentFilter(BluetoothAdapter.ACTION_STATE_CHANGED),
+            ContextCompat.RECEIVER_NOT_EXPORTED,
+        )
         startScanIfPermitted()
         startEqualizer()
     }
 
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        super.onStartCommand(intent, flags, startId)
+        // The service instance may already be alive (e.g. from a previous launch) when
+        // start(context) is called again — Android does NOT re-run onCreate() in that case, so
+        // this is the retry point that picks up a permission grant or a Bluetooth toggle that
+        // happened after the service was first created.
+        startScanIfPermitted()
+        return android.app.Service.START_STICKY
+    }
+
     override fun onDestroy() {
         stopScan()
+        runCatching { unregisterReceiver(bluetoothStateReceiver) }
         SystemEqualizerController.release()
         super.onDestroy()
     }
@@ -150,6 +186,7 @@ class AirPodsScanService : LifecycleService() {
 
     @Suppress("MissingPermission") // guarded by hasScanPermission()
     private fun startScanIfPermitted() {
+        if (isScanning) return
         if (!hasScanPermission()) return
         val adapter = (getSystemService(Context.BLUETOOTH_SERVICE) as BluetoothManager).adapter
             ?: return
@@ -159,15 +196,16 @@ class AirPodsScanService : LifecycleService() {
         val settings = ScanSettings.Builder()
             .setScanMode(ScanSettings.SCAN_MODE_LOW_POWER) // battery-friendly; data itself is slow-changing anyway
             .build()
-        scanner.startScan(null, settings, scanCallback)
+        runCatching { scanner.startScan(null, settings, scanCallback) }.onSuccess { isScanning = true }
     }
 
     @Suppress("MissingPermission")
     private fun stopScan() {
+        isScanning = false
         if (!hasScanPermission()) return
         val adapter = (getSystemService(Context.BLUETOOTH_SERVICE) as BluetoothManager).adapter
             ?: return
-        adapter.bluetoothLeScanner?.stopScan(scanCallback)
+        runCatching { adapter.bluetoothLeScanner?.stopScan(scanCallback) }
     }
 
     private fun createNotificationChannels() {
