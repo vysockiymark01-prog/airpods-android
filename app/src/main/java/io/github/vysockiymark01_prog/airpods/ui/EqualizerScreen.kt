@@ -21,6 +21,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
@@ -107,8 +108,15 @@ fun EqualizerScreen(onBack: () -> Unit, viewModel: EqualizerViewModel = viewMode
             )
 
             Spacer(Modifier.height(16.dp))
-            Text("Полосы эквалайзера", style = MaterialTheme.typography.titleSmall)
-            Spacer(Modifier.height(8.dp))
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Text("Полосы эквалайзера (10)", style = MaterialTheme.typography.titleSmall)
+                TextButton(onClick = viewModel::resetToFlat) { Text("Сбросить") }
+            }
+            Spacer(Modifier.height(4.dp))
 
             LazyColumn(modifier = Modifier.weight(1f)) {
                 items(uiState.bandCenterFreqHz.size) { index ->
@@ -116,7 +124,7 @@ fun EqualizerScreen(onBack: () -> Unit, viewModel: EqualizerViewModel = viewMode
                     val level = uiState.state.bandLevelsMb.getOrElse(index) { 0 }
                     Column(modifier = Modifier.padding(vertical = 4.dp)) {
                         Text(
-                            text = "${formatFreq(freq)} · ${level / 100} дБ",
+                            text = "${formatFreq(freq)} · ${formatDb(level)}",
                             style = MaterialTheme.typography.bodySmall,
                         )
                         Slider(
@@ -153,3 +161,8 @@ private fun StatusBanner(globalAvailable: Boolean, activeSessions: Int) {
 
 private fun formatFreq(hz: Int): String =
     if (hz >= 1000) "${hz / 1000} кГц" else "$hz Гц"
+
+private fun formatDb(levelMb: Int): String {
+    val db = levelMb / 100
+    return if (db > 0) "+$db дБ" else "$db дБ"
+}

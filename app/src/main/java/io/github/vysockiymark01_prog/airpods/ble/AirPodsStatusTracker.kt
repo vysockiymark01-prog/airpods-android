@@ -1,74 +1,55 @@
 package io.github.vysockiymark01_prog.airpods.ble
 
 /**
- * Turns a stream of raw BLE proximity-pairing packets into one stable, as-accurate-as-possible
- * [AirPodsStatus] — in particular the three battery readings (left/right pod + case), which is
- * what actually flickers/misreports in practice.
+ * Turns a stream of raw BLE proximity-pairing packets into one stable [AirPodsStatus].
  *
  * Apple's proximity-pairing broadcast (see [ProximityPairingParser]) is passive and unencrypted —
  * ANY nearby Apple device broadcasting it is picked up, not just the user's own earbuds. Without
- * filtering, [AirPodsScanService] used to overwrite the displayed status on every single packet,
- * so a second Apple device within range (someone else's AirPods, a colleague's Beats, a device in
- * the next room) could instantly flash a completely different model/battery reading and vanish.
+ * filtering, a second Apple device within range could instantly flash a completely different
+ * model/battery reading and vanish.
  *
- * Two layers of filtering, in order:
+ * The filter here is deliberately simple: always trust whichever BLE address currently has the
+ * STRONGEST signal among addresses heard in the last [freshWindowMs] — the assumption being that
+ * the earbuds you're actually wearing are, by a wide margin, the closest Apple device to your
+ * phone. This replaced an earlier design with a "locked primary + switch margin + must-repeat-
+ * twice" scheme: that version was more resistant to single-reading flicker in theory, but in
+ * practice it could get stuck refusing to update at all — e.g. across Apple's periodic BLE
+ * private-address rotation, or whenever a genuinely-changing reading never happened to repeat
+ * bit-for-bit twice in a row — which is a strictly worse failure mode (a frozen, wrong display,
+ * and autopause/notifications going stale) than the occasional flicker it was guarding against.
+ * Always-trust-the-strongest-signal has no such stuck state: there is nothing to time out of or
+ * wait on, so a real change is reflected on the very next packet.
  *
- * 1. **Primary-device lock** — picks one BLE address as "the" source by RSSI and requires a real
- *    signal margin ([switchRssiMargin]) before switching away from it, so a single momentarily-
- *    stronger stray packet can't steal the display. The lock is only dropped for real once
- *    nothing has been heard from that address for [staleTimeoutMs] — set well above the ~1 minute
- *    re-broadcast interval (see [AirPodsScanService] doc) so the lock survives normal gaps between
- *    readings; a real device swap (or Apple's periodic random-address rotation) is picked up once
- *    the old address genuinely goes quiet.
- *
- * 2. **Per-field battery debounce** — even from the *correct* device, a single BLE packet is not
- *    proof: a bit misread, a half-decoded advertisement, or a genuinely transient firmware report
- *    can produce one outlier value. Each of the three battery fields only adopts a *changed*
- *    value once it's been seen [requiredConfirmations] times in a row; the very first reading for
- *    a field is shown immediately (so the UI isn't stuck on "нет данных" waiting to double-check
- *    the initial value), and a field reported as "нет данных" never erases a value already known
- *    — it just means that particular broadcast didn't include it (normal for the case, which
- *    reports least often of the three).
+ * The one thing still smoothed is a battery field reported as "нет data" — that never erases a
+ * value already known for the CURRENT source device; switching to a different address resets it,
+ * since a different physical device's old battery reading has nothing to do with the new one.
  */
 class AirPodsStatusTracker(
-    private val staleTimeoutMs: Long = STALE_TIMEOUT_MS,
-    private val switchRssiMargin: Int = SWITCH_RSSI_MARGIN,
-    private val requiredConfirmations: Int = REQUIRED_CONFIRMATIONS,
+    private val freshWindowMs: Long = FRESH_WINDOW_MS,
 ) {
-    private var primaryAddress: String? = null
-    private var primaryRssi: Int = Int.MIN_VALUE
-    private var primaryLastSeenMs: Long = 0L
+    private data class SeenDevice(var rssi: Int, var lastSeenMs: Long)
 
-    private val leftBattery = BatteryDebouncer(requiredConfirmations)
-    private val rightBattery = BatteryDebouncer(requiredConfirmations)
-    private val caseBattery = BatteryDebouncer(requiredConfirmations)
+    private val seenDevices = mutableMapOf<String, SeenDevice>()
+    private var currentAddress: String? = null
 
-    /** @return the status to display, or null if this packet was rejected (not the primary device). */
+    private val leftBattery = BatteryDebouncer()
+    private val rightBattery = BatteryDebouncer()
+    private val caseBattery = BatteryDebouncer()
+
+    /** @return the status to display, or null if some other, currently-stronger device wins this packet. */
     fun onReading(address: String, rssi: Int, status: AirPodsStatus, nowElapsedMs: Long): AirPodsStatus? {
-        val currentPrimary = primaryAddress
-        val primaryIsStale = currentPrimary == null || (nowElapsedMs - primaryLastSeenMs) > staleTimeoutMs
+        seenDevices[address] = SeenDevice(rssi, nowElapsedMs)
+        seenDevices.entries.removeAll { nowElapsedMs - it.value.lastSeenMs > freshWindowMs }
 
-        val acceptAsPrimary = when {
-            currentPrimary == null -> true
-            address == currentPrimary -> true
-            primaryIsStale -> true
-            rssi >= primaryRssi + switchRssiMargin -> true
-            else -> false
-        }
-        if (!acceptAsPrimary) return null
+        val strongestAddress = seenDevices.maxByOrNull { it.value.rssi }?.key
+        if (strongestAddress != address) return null
 
-        // Switching to a genuinely new device (not just a re-confirmation of the current one)
-        // invalidates all debounce state carried over from whatever the old primary was — a new
-        // source's battery levels have nothing to do with the previous one's.
-        if (address != currentPrimary) {
+        if (address != currentAddress) {
+            currentAddress = address
             leftBattery.reset()
             rightBattery.reset()
             caseBattery.reset()
         }
-
-        primaryAddress = address
-        primaryRssi = rssi
-        primaryLastSeenMs = nowElapsedMs
 
         return status.copy(
             leftBattery = leftBattery.accept(status.leftBattery),
@@ -77,56 +58,22 @@ class AirPodsStatusTracker(
         )
     }
 
-    /** Debounces one battery field so a single outlier packet can't change what's displayed. */
-    private class BatteryDebouncer(private val requiredConfirmations: Int) {
+    /** Only smooths "нет данных" into "keep the last known value" — never blocks a real change. */
+    private class BatteryDebouncer {
         private var confirmed: BatteryLevel = BatteryLevel.Unavailable
-        private var pending: BatteryLevel? = null
-        private var pendingCount = 0
 
         fun reset() {
             confirmed = BatteryLevel.Unavailable
-            pending = null
-            pendingCount = 0
         }
 
         fun accept(fresh: BatteryLevel): BatteryLevel {
-            if (fresh == BatteryLevel.Unavailable) {
-                // No new info this time — keep whatever we already knew, don't drop to "n/a".
-                pending = null
-                pendingCount = 0
-                return confirmed
-            }
-            if (confirmed == BatteryLevel.Unavailable) {
-                // First real reading for this field on this device: show it immediately rather
-                // than making the user wait through requiredConfirmations for an initial value.
-                confirmed = fresh
-                pending = null
-                pendingCount = 0
-                return confirmed
-            }
-            if (fresh == confirmed) {
-                pending = null
-                pendingCount = 0
-                return confirmed
-            }
-            if (fresh == pending) {
-                pendingCount++
-            } else {
-                pending = fresh
-                pendingCount = 1
-            }
-            if (pendingCount >= requiredConfirmations) {
-                confirmed = fresh
-                pending = null
-                pendingCount = 0
-            }
+            if (fresh == BatteryLevel.Unavailable) return confirmed
+            confirmed = fresh
             return confirmed
         }
     }
 
     companion object {
-        private const val STALE_TIMEOUT_MS = 120_000L
-        private const val SWITCH_RSSI_MARGIN = 8
-        private const val REQUIRED_CONFIRMATIONS = 2
+        private const val FRESH_WINDOW_MS = 20_000L
     }
 }
