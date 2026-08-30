@@ -33,6 +33,10 @@ import kotlinx.coroutines.flow.asStateFlow
  * updating even when the app UI isn't open. Required because Android kills background BLE
  * scanning aggressively otherwise (Doze / battery optimization).
  *
+ * Also owns everything else that needs to keep running with the app UI closed: the global
+ * equalizer ([startEqualizer]), pause-on-removal ([autoPauseController]), the live-battery
+ * notification, low-battery alerts, and periodic battery-history logging.
+ *
  * Scan interval note: firmware only re-broadcasts every ~1 minute or so (see README "Ограничения
  * точности") — [ScanSettings.SCAN_MODE_LOW_LATENCY] doesn't make readings arrive faster than the
  * earbuds themselves send them, it just avoids Android's own coalescing delay on top of that.
@@ -41,7 +45,16 @@ class AirPodsScanService : LifecycleService() {
 
     companion object {
         private const val NOTIFICATION_CHANNEL_ID = "airpods_monitor"
+        private const val ALERT_CHANNEL_ID = "airpods_battery_alerts"
         private const val NOTIFICATION_ID = 1
+        private const val LEFT_ALERT_NOTIFICATION_ID = 10
+        private const val RIGHT_ALERT_NOTIFICATION_ID = 11
+        private const val CASE_ALERT_NOTIFICATION_ID = 12
+
+        // Alert once at/under this level, don't alert again until it's back above the recovery
+        // threshold (or charging) — otherwise every single reading near the cutoff would re-fire.
+        private const val LOW_BATTERY_THRESHOLD = 20
+        private const val LOW_BATTERY_RECOVERY_THRESHOLD = 30
 
         private val _latestStatus = MutableStateFlow<AirPodsStatus?>(null)
         val latestStatus: StateFlow<AirPodsStatus?> = _latestStatus.asStateFlow()
@@ -65,6 +78,10 @@ class AirPodsScanService : LifecycleService() {
     // app UI fully closed — the service is what stays alive, the Activity/ViewModel does not.
     private val autoPauseController = AutoPauseController(this)
 
+    // Which components we've already sent a low-battery alert for, so we don't re-alert on every
+    // single reading while sitting under the threshold — cleared once a component recovers.
+    private val lowBatteryAlerted = mutableSetOf<String>()
+
     private val scanCallback = object : ScanCallback() {
         @Suppress("MissingPermission") // guarded by hasScanPermission() before the scan is started
         override fun onScanResult(callbackType: Int, result: ScanResult) {
@@ -76,6 +93,9 @@ class AirPodsScanService : LifecycleService() {
             if (merged != null) {
                 _latestStatus.value = merged
                 autoPauseController.onStatusUpdate(merged)
+                updateOngoingNotification(merged)
+                checkLowBattery(merged)
+                lifecycleScope.launch { BatteryHistoryStore.record(applicationContext, merged) }
             }
         }
 
@@ -86,8 +106,8 @@ class AirPodsScanService : LifecycleService() {
 
     override fun onCreate() {
         super.onCreate()
-        createNotificationChannel()
-        startForeground(NOTIFICATION_ID, buildNotification())
+        createNotificationChannels()
+        startForeground(NOTIFICATION_ID, buildNotification(null))
         startScanIfPermitted()
         startEqualizer()
     }
@@ -107,6 +127,7 @@ class AirPodsScanService : LifecycleService() {
     private fun startEqualizer() {
         SystemEqualizerController.ensureInitialized()
         lifecycleScope.launch {
+            EqualizerPreferences.applyDefaultPresetIfFirstRun(applicationContext)
             EqualizerPreferences.flow(applicationContext).collect { state ->
                 SystemEqualizerController.apply(state)
             }
@@ -144,27 +165,86 @@ class AirPodsScanService : LifecycleService() {
         adapter.bluetoothLeScanner?.stopScan(scanCallback)
     }
 
-    private fun createNotificationChannel() {
-        val channel = NotificationChannel(
-            NOTIFICATION_CHANNEL_ID,
-            getString(R.string.notification_channel_name),
-            NotificationManager.IMPORTANCE_MIN,
+    private fun createNotificationChannels() {
+        val manager = getSystemService(NotificationManager::class.java)
+        manager.createNotificationChannel(
+            NotificationChannel(
+                NOTIFICATION_CHANNEL_ID,
+                getString(R.string.notification_channel_name),
+                NotificationManager.IMPORTANCE_MIN,
+            ),
         )
-        getSystemService(NotificationManager::class.java).createNotificationChannel(channel)
+        manager.createNotificationChannel(
+            NotificationChannel(
+                ALERT_CHANNEL_ID,
+                getString(R.string.notification_alert_channel_name),
+                NotificationManager.IMPORTANCE_DEFAULT,
+            ),
+        )
     }
 
-    private fun buildNotification(): Notification {
+    /** Keeps the persistent monitoring notification's battery numbers current. */
+    private fun updateOngoingNotification(status: AirPodsStatus) {
+        getSystemService(NotificationManager::class.java).notify(NOTIFICATION_ID, buildNotification(status))
+    }
+
+    private fun buildNotification(status: AirPodsStatus?): Notification {
         val openAppIntent = PendingIntent.getActivity(
             this, 0,
             Intent(this, MainActivity::class.java),
             PendingIntent.FLAG_IMMUTABLE,
         )
+        val title = status?.model?.displayName ?: getString(R.string.notification_monitoring_title)
+        val text = status?.let { formatBatterySummary(it) }
         return NotificationCompat.Builder(this, NOTIFICATION_CHANNEL_ID)
-            .setContentTitle(getString(R.string.notification_monitoring_title))
+            .setContentTitle(title)
+            .apply { if (text != null) setContentText(text) }
             .setSmallIcon(R.drawable.ic_notification_earbud)
             .setContentIntent(openAppIntent)
             .setOngoing(true)
             .setPriority(NotificationCompat.PRIORITY_MIN)
             .build()
+    }
+
+    private fun formatBatterySummary(status: AirPodsStatus): String {
+        fun fmt(level: BatteryLevel) = when (level) {
+            is BatteryLevel.Percent -> "${level.value}%"
+            BatteryLevel.Unavailable -> "н/д"
+        }
+        return "Л ${fmt(status.leftBattery)} · П ${fmt(status.rightBattery)} · Кейс ${fmt(status.caseBattery)}"
+    }
+
+    private fun checkLowBattery(status: AirPodsStatus) {
+        checkComponent("left", LEFT_ALERT_NOTIFICATION_ID, "Левый наушник", status.leftBattery, status.leftCharging)
+        checkComponent("right", RIGHT_ALERT_NOTIFICATION_ID, "Правый наушник", status.rightBattery, status.rightCharging)
+        checkComponent("case", CASE_ALERT_NOTIFICATION_ID, "Кейс", status.caseBattery, status.caseCharging)
+    }
+
+    private fun checkComponent(key: String, notificationId: Int, label: String, level: BatteryLevel, charging: Boolean) {
+        val percent = (level as? BatteryLevel.Percent)?.value ?: return
+        if (charging || percent > LOW_BATTERY_RECOVERY_THRESHOLD) {
+            lowBatteryAlerted.remove(key)
+            return
+        }
+        if (percent <= LOW_BATTERY_THRESHOLD && lowBatteryAlerted.add(key)) {
+            sendLowBatteryAlert(notificationId, label, percent)
+        }
+    }
+
+    private fun sendLowBatteryAlert(notificationId: Int, label: String, percent: Int) {
+        val openAppIntent = PendingIntent.getActivity(
+            this, 0,
+            Intent(this, MainActivity::class.java),
+            PendingIntent.FLAG_IMMUTABLE,
+        )
+        val notification = NotificationCompat.Builder(this, ALERT_CHANNEL_ID)
+            .setContentTitle("$label — заряд $percent%")
+            .setContentText("Скоро разрядится — стоит зарядить")
+            .setSmallIcon(R.drawable.ic_notification_earbud)
+            .setContentIntent(openAppIntent)
+            .setAutoCancel(true)
+            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+            .build()
+        getSystemService(NotificationManager::class.java).notify(notificationId, notification)
     }
 }

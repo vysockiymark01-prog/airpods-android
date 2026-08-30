@@ -15,6 +15,7 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import io.github.vysockiymark01_prog.airpods.ble.AirPodsScanService
+import io.github.vysockiymark01_prog.airpods.ui.BatteryHistoryScreen
 import io.github.vysockiymark01_prog.airpods.ui.EqualizerScreen
 import io.github.vysockiymark01_prog.airpods.ui.HomeScreen
 import io.github.vysockiymark01_prog.airpods.ui.theme.AirPodsTheme
@@ -50,10 +51,14 @@ class MainActivity : ComponentActivity() {
                             viewModel = viewModel,
                             onRequestPermissions = { requestPermissions() },
                             onOpenEqualizer = { navController.navigate("equalizer") },
+                            onOpenHistory = { navController.navigate("history") },
                         )
                     }
                     composable("equalizer") {
                         EqualizerScreen(onBack = { navController.popBackStack() })
+                    }
+                    composable("history") {
+                        BatteryHistoryScreen(onBack = { navController.popBackStack() })
                     }
                 }
             }

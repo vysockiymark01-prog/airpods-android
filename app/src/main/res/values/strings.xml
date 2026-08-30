@@ -2,4 +2,6 @@
     <string name="app_name">AirPods для Android</string>
     <string name="notification_channel_name">Мониторинг наушников</string>
     <string name="notification_monitoring_title">Отслеживание заряда и статуса наушников</string>
+    <string name="notification_alert_channel_name">Низкий заряд наушников</string>
+    <string name="equalizer_tile_label">Эквалайзер</string>
 </resources>

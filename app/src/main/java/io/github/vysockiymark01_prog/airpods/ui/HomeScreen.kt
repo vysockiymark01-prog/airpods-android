@@ -47,6 +47,7 @@ fun HomeScreen(
     viewModel: MainViewModel,
     onRequestPermissions: () -> Unit,
     onOpenEqualizer: () -> Unit,
+    onOpenHistory: () -> Unit,
 ) {
     val uiState by viewModel.uiState.collectAsState()
 
@@ -55,6 +56,9 @@ fun HomeScreen(
             TopAppBar(
                 title = { Text("AirPods для Android") },
                 actions = {
+                    IconButton(onClick = onOpenHistory) {
+                        Text("📈")
+                    }
                     IconButton(onClick = onOpenEqualizer) {
                         Text("🎚️")
                     }
