@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import android.content.Intent
 import android.net.Uri
 import androidx.compose.foundation.clickable
@@ -74,7 +75,7 @@ fun HomeScreen(
                 EmptyState(onRequestPermissions)
             } else {
                 ModelPicker(
-                    displayName = status.model.displayName,
+                    model = status.model,
                     manualOverride = uiState.manualModelOverride,
                     onPick = viewModel::setManualModelOverride,
                 )
@@ -127,14 +128,16 @@ fun HomeScreen(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun ModelPicker(displayName: String, manualOverride: AirPodsModel?, onPick: (AirPodsModel?) -> Unit) {
+private fun ModelPicker(model: AirPodsModel, manualOverride: AirPodsModel?, onPick: (AirPodsModel?) -> Unit) {
     var expanded by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(false) }
     androidx.compose.foundation.layout.Box {
         androidx.compose.foundation.layout.Column(
             horizontalAlignment = Alignment.CenterHorizontally,
             modifier = Modifier.clickable { expanded = true },
         ) {
-            Text(text = displayName, style = MaterialTheme.typography.headlineLarge)
+            AirPodsModelIcon(model = model, tint = MaterialTheme.colorScheme.onSurface)
+            Spacer(Modifier.height(4.dp))
+            Text(text = model.displayName, style = MaterialTheme.typography.headlineLarge)
             Text(
                 text = if (manualOverride != null) "Модель выбрана вручную · нажмите, чтобы изменить" else "Определено автоматически · нажмите, чтобы изменить",
                 style = MaterialTheme.typography.bodySmall,
@@ -149,11 +152,12 @@ private fun ModelPicker(displayName: String, manualOverride: AirPodsModel?, onPi
                     expanded = false
                 },
             )
-            AirPodsModel.entries.filter { it != AirPodsModel.UNKNOWN }.forEach { model ->
+            AirPodsModel.entries.filter { it != AirPodsModel.UNKNOWN }.forEach { entry ->
                 DropdownMenuItem(
-                    text = { Text(if (manualOverride == model) "✓ ${model.displayName}" else model.displayName) },
+                    leadingIcon = { AirPodsModelIcon(model = entry, modifier = Modifier.size(28.dp)) },
+                    text = { Text(if (manualOverride == entry) "✓ ${entry.displayName}" else entry.displayName) },
                     onClick = {
-                        onPick(model)
+                        onPick(entry)
                         expanded = false
                     },
                 )
