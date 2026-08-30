@@ -8,8 +8,8 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.AssistChip
@@ -39,9 +39,8 @@ import io.github.vysockiymark01_prog.airpods.audio.EqualizerPreset
  * [io.github.vysockiymark01_prog.airpods.audio.PerSessionEqualizerController] for what this
  * actually does and, honestly, what it doesn't (it is not Apple's Adaptive Audio).
  *
- * The controls below are always shown and always usable — even on a device where the platform
- * refuses a global effect, adjusting anything here still works the moment a compatible app starts
- * playing (see [StatusBanner]), so there's no dead end.
+ * The whole screen is one scrollable column — including the 10 band sliders — so nothing gets
+ * stuck in a cramped, separately-scrolling sub-area at the bottom of the screen.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -64,7 +63,8 @@ fun EqualizerScreen(onBack: () -> Unit, viewModel: EqualizerViewModel = viewMode
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
-                .padding(horizontal = 24.dp),
+                .padding(horizontal = 24.dp)
+                .verticalScroll(rememberScrollState()),
         ) {
             Spacer(Modifier.height(8.dp))
             Text(
@@ -118,25 +118,22 @@ fun EqualizerScreen(onBack: () -> Unit, viewModel: EqualizerViewModel = viewMode
             }
             Spacer(Modifier.height(4.dp))
 
-            LazyColumn(modifier = Modifier.weight(1f)) {
-                items(uiState.bandCenterFreqHz.size) { index ->
-                    val freq = uiState.bandCenterFreqHz.getOrNull(index) ?: 0
-                    val level = uiState.state.bandLevelsMb.getOrElse(index) { 0 }
-                    Column(modifier = Modifier.padding(vertical = 4.dp)) {
-                        Text(
-                            text = "${formatFreq(freq)} · ${formatDb(level)}",
-                            style = MaterialTheme.typography.bodySmall,
-                        )
-                        Slider(
-                            value = level.toFloat(),
-                            onValueChange = { viewModel.setBandLevel(index, it.toInt()) },
-                            valueRange = uiState.bandLevelRangeMb.first.toFloat()..
-                                uiState.bandLevelRangeMb.last.toFloat(),
-                        )
-                    }
+            uiState.bandCenterFreqHz.forEachIndexed { index, freq ->
+                val level = uiState.state.bandLevelsMb.getOrElse(index) { 0 }
+                Column(modifier = Modifier.padding(vertical = 4.dp)) {
+                    Text(
+                        text = "${formatFreq(freq)} · ${formatDb(level)}",
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                    Slider(
+                        value = level.toFloat(),
+                        onValueChange = { viewModel.setBandLevel(index, it.toInt()) },
+                        valueRange = uiState.bandLevelRangeMb.first.toFloat()..
+                            uiState.bandLevelRangeMb.last.toFloat(),
+                    )
                 }
             }
-            Spacer(Modifier.height(16.dp))
+            Spacer(Modifier.height(32.dp))
         }
     }
 }

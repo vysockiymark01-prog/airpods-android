@@ -4,6 +4,7 @@ import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import io.github.vysockiymark01_prog.airpods.ble.AacpController
+import io.github.vysockiymark01_prog.airpods.ble.AacpSendResult
 import io.github.vysockiymark01_prog.airpods.ble.AirPodsModel
 import io.github.vysockiymark01_prog.airpods.ble.AirPodsScanService
 import io.github.vysockiymark01_prog.airpods.ble.AirPodsStatus
@@ -21,6 +22,8 @@ data class HomeUiState(
     val themeMode: AppThemeMode = AppThemeMode.SYSTEM,
     val sendingCommand: Boolean = false,
     val lastAncCommandFailed: Boolean = false,
+    /** Why the last ANC command failed, in plain Russian — null when it succeeded or nothing has been sent yet. */
+    val lastAncErrorMessage: String? = null,
 )
 
 class MainViewModel(application: Application) : AndroidViewModel(application) {
@@ -79,11 +82,29 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun requestNoiseControlMode(mode: NoiseControlMode) {
         val status = _uiState.value.status ?: return
-        val controller = aacpController ?: return
+        val controller = aacpController
+        if (controller == null) {
+            // Previously this silently did nothing — no error, no feedback, just a button that
+            // appeared to do nothing at all. Now it's always visible why.
+            _uiState.value = _uiState.value.copy(
+                lastAncCommandFailed = true,
+                lastAncErrorMessage = "не найдено сопряжённое Bluetooth-устройство с именем, " +
+                    "содержащим «AirPods»/«Beats» — проверьте в системных настройках Bluetooth, " +
+                    "что наушники сопряжены и подключены как аудиоустройство, затем откройте " +
+                    "приложение заново",
+            )
+            return
+        }
         viewModelScope.launch {
-            _uiState.value = _uiState.value.copy(sendingCommand = true, lastAncCommandFailed = false)
-            val ok = controller.sendNoiseControlMode(status.model, status.rawModelId, mode)
-            _uiState.value = _uiState.value.copy(sendingCommand = false, lastAncCommandFailed = !ok)
+            _uiState.value = _uiState.value.copy(sendingCommand = true, lastAncCommandFailed = false, lastAncErrorMessage = null)
+            when (val result = controller.sendNoiseControlMode(status.model, status.rawModelId, mode)) {
+                is AacpSendResult.Success -> _uiState.value = _uiState.value.copy(sendingCommand = false)
+                is AacpSendResult.Failure -> _uiState.value = _uiState.value.copy(
+                    sendingCommand = false,
+                    lastAncCommandFailed = true,
+                    lastAncErrorMessage = result.reason,
+                )
+            }
         }
     }
 

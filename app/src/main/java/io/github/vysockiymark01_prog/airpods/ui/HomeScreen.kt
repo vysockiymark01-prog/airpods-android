@@ -120,7 +120,8 @@ fun HomeScreen(
                     )
                     AnimatedVisibility(visible = uiState.lastAncCommandFailed, enter = fadeIn(), exit = fadeOut()) {
                         Text(
-                            text = "Не удалось отправить команду — проверьте, что наушники подключены как аудио-устройство",
+                            text = uiState.lastAncErrorMessage
+                                ?: "Не удалось отправить команду — проверьте, что наушники подключены как аудио-устройство",
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.error,
                             modifier = Modifier.padding(top = 12.dp),

@@ -8,6 +8,13 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.IOException
 
+/** Why a noise-control command did or didn't go out — surfaced in the UI so a failure is
+ *  diagnosable without needing `adb logcat` on the user's own phone. */
+sealed class AacpSendResult {
+    object Success : AacpSendResult()
+    data class Failure(val reason: String) : AacpSendResult()
+}
+
 /**
  * Sends AACP control commands (currently: noise-control mode) over the L2CAP channel AirPods
  * expose on their existing *classic* Bluetooth connection.
@@ -23,8 +30,8 @@ import java.io.IOException
  *    feature is unavailable and ANC switching cannot work (see README).
  *  - This is best-effort: the exact handshake AirPods expect before accepting commands is not
  *    fully documented publicly. We send the raw control packet directly; if the device silently
- *    ignores it, [sendNoiseControlMode] still reports success at the socket level (the write
- *    didn't throw) but the mode may not actually change — this asymmetry is called out in the UI.
+ *    ignores it, [sendNoiseControlMode] still reports [AacpSendResult.Success] (the write didn't
+ *    throw) but the mode may not actually change — this asymmetry is called out in the UI.
  */
 class AacpController(private val device: BluetoothDevice) {
 
@@ -36,35 +43,39 @@ class AacpController(private val device: BluetoothDevice) {
     }
 
     @SuppressLint("MissingPermission") // caller is required to have checked BLUETOOTH_CONNECT
-    private suspend fun ensureConnected(): BluetoothSocket? = withContext(Dispatchers.IO) {
-        socket?.takeIf { it.isConnected }?.let { return@withContext it }
+    private suspend fun ensureConnected(): Result<BluetoothSocket> = withContext(Dispatchers.IO) {
+        socket?.takeIf { it.isConnected }?.let { return@withContext Result.success(it) }
         try {
             val s = device.createInsecureL2capChannel(AACP_L2CAP_PSM)
             s.connect()
             socket = s
-            s
+            Result.success(s)
         } catch (e: IOException) {
+            val reason = "не удалось открыть L2CAP-канал (${e.message ?: e.javaClass.simpleName})"
             Log.w(TAG, "L2CAP connect failed for ${device.address}: ${e.message}")
-            null
+            Result.failure(IOException(reason, e))
         } catch (e: SecurityException) {
             Log.w(TAG, "Missing BLUETOOTH_CONNECT permission", e)
-            null
+            Result.failure(SecurityException("нет разрешения BLUETOOTH_CONNECT", e))
         }
     }
 
-    /** @return true if the packet was written to the socket (NOT a confirmation the mode changed). */
-    suspend fun sendNoiseControlMode(model: AirPodsModel, rawModelId: Int, mode: NoiseControlMode): Boolean {
-        val packet = AacpCommandTable.packetFor(model, rawModelId, mode) ?: return false
-        val s = ensureConnected() ?: return false
+    /** Does NOT confirm the mode actually changed on the hardware — only that the packet was sent. */
+    suspend fun sendNoiseControlMode(model: AirPodsModel, rawModelId: Int, mode: NoiseControlMode): AacpSendResult {
+        val packet = AacpCommandTable.packetFor(model, rawModelId, mode)
+            ?: return AacpSendResult.Failure("для этой модели нет известной команды ANC")
+        val socketResult = ensureConnected()
+        val s = socketResult.getOrNull()
+            ?: return AacpSendResult.Failure(socketResult.exceptionOrNull()?.message ?: "не удалось подключиться")
         return withContext(Dispatchers.IO) {
             try {
                 s.outputStream.write(packet)
                 s.outputStream.flush()
-                true
+                AacpSendResult.Success
             } catch (e: IOException) {
                 Log.w(TAG, "Write failed: ${e.message}")
                 socket = null
-                false
+                AacpSendResult.Failure("не удалось записать в сокет (${e.message ?: e.javaClass.simpleName})")
             }
         }
     }
