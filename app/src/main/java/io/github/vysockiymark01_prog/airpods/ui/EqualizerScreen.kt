@@ -177,8 +177,13 @@ private fun VerticalSlider(
         onValueChange = onValueChange,
         valueRange = valueRange,
         modifier = Modifier
-            .width(150.dp)
-            .height(28.dp)
+            // These are the FINAL on-screen size (narrow + tall), not the slider's natural one —
+            // the .layout below measures the actual Slider at the swapped, natural orientation
+            // (150 long x 28 thick) and the graphicsLayer rotation turns that into this footprint.
+            // (Swapping these two by mistake is exactly what produced tiny squashed-looking
+            // horizontal sliders instead of vertical faders in the previous build.)
+            .width(28.dp)
+            .height(150.dp)
             .graphicsLayer {
                 rotationZ = 270f
                 transformOrigin = TransformOrigin(0f, 0f)
