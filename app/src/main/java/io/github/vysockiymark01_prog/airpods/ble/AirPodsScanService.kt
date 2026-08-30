@@ -56,12 +56,26 @@ class AirPodsScanService : LifecycleService() {
         }
     }
 
+    // Not tied to lifecycle — one tracker for the service's whole lifetime, same reasoning as
+    // SystemEqualizerController being a singleton: we want one continuous view of "who's primary"
+    // rather than resetting it every time the service restarts.
+    private val statusTracker = AirPodsStatusTracker()
+
+    // Lives here (not in MainViewModel) specifically so pause-on-removal keeps working with the
+    // app UI fully closed — the service is what stays alive, the Activity/ViewModel does not.
+    private val autoPauseController = AutoPauseController(this)
+
     private val scanCallback = object : ScanCallback() {
+        @Suppress("MissingPermission") // guarded by hasScanPermission() before the scan is started
         override fun onScanResult(callbackType: Int, result: ScanResult) {
             val manufacturerData = result.scanRecord?.getManufacturerSpecificData(0x004C) ?: return
             val status = ProximityPairingParser.parse(manufacturerData, SystemClock.elapsedRealtime())
-            if (status != null) {
-                _latestStatus.value = status
+                ?: return
+            val address = result.device?.address ?: return
+            val merged = statusTracker.onReading(address, result.rssi, status, SystemClock.elapsedRealtime())
+            if (merged != null) {
+                _latestStatus.value = merged
+                autoPauseController.onStatusUpdate(merged)
             }
         }
 

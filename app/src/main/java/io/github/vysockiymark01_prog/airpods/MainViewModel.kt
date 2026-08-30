@@ -4,9 +4,10 @@ import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import io.github.vysockiymark01_prog.airpods.ble.AacpController
+import io.github.vysockiymark01_prog.airpods.ble.AirPodsModel
 import io.github.vysockiymark01_prog.airpods.ble.AirPodsScanService
 import io.github.vysockiymark01_prog.airpods.ble.AirPodsStatus
-import io.github.vysockiymark01_prog.airpods.ble.AutoPauseController
+import io.github.vysockiymark01_prog.airpods.ble.ModelOverridePreferences
 import io.github.vysockiymark01_prog.airpods.ble.NoiseControlMode
 import io.github.vysockiymark01_prog.airpods.ui.theme.AppThemeMode
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -16,6 +17,7 @@ import kotlinx.coroutines.launch
 
 data class HomeUiState(
     val status: AirPodsStatus? = null,
+    val manualModelOverride: AirPodsModel? = null,
     val themeMode: AppThemeMode = AppThemeMode.SYSTEM,
     val sendingCommand: Boolean = false,
     val lastAncCommandFailed: Boolean = false,
@@ -23,19 +25,52 @@ data class HomeUiState(
 
 class MainViewModel(application: Application) : AndroidViewModel(application) {
 
-    private val autoPauseController = AutoPauseController(application)
+    // Pause-on-removal itself now lives in AirPodsScanService (see its doc) so it keeps working
+    // with this ViewModel/Activity fully torn down — this class only mirrors status for the UI.
     private var aacpController: AacpController? = null
 
     private val _uiState = MutableStateFlow(HomeUiState())
     val uiState: StateFlow<HomeUiState> = _uiState.asStateFlow()
 
+    private var rawStatus: AirPodsStatus? = null
+    private var manualOverride: AirPodsModel? = null
+
     init {
         viewModelScope.launch {
             AirPodsScanService.latestStatus.collect { status ->
-                _uiState.value = _uiState.value.copy(status = status)
-                status?.let { autoPauseController.onStatusUpdate(it) }
+                rawStatus = status
+                recomputeStatus()
             }
         }
+        viewModelScope.launch {
+            ModelOverridePreferences.flow(application).collect { override ->
+                manualOverride = override
+                _uiState.value = _uiState.value.copy(manualModelOverride = override)
+                recomputeStatus()
+            }
+        }
+    }
+
+    /**
+     * Merges the manually-picked model (if any — see [ModelOverridePreferences]) on top of the
+     * auto-detected reading. Battery/ear-detection/charging fields always come from the real BLE
+     * broadcast; only [AirPodsStatus.model] and [AirPodsStatus.rawModelId] are substituted, since
+     * those are what drive the ANC-support check and the AACP command lookup.
+     */
+    private fun recomputeStatus() {
+        val raw = rawStatus
+        val override = manualOverride
+        val displayed = if (raw != null && override != null) {
+            raw.copy(model = override, rawModelId = override.modelId)
+        } else {
+            raw
+        }
+        _uiState.value = _uiState.value.copy(status = displayed)
+    }
+
+    /** Pass null to go back to automatic detection. */
+    fun setManualModelOverride(model: AirPodsModel?) {
+        viewModelScope.launch { ModelOverridePreferences.save(getApplication(), model) }
     }
 
     fun setThemeMode(mode: AppThemeMode) {

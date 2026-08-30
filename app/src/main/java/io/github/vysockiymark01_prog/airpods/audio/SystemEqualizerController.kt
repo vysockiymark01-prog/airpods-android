@@ -28,24 +28,45 @@ object SystemEqualizerController {
     private var equalizer: Equalizer? = null
     private var bassBoost: BassBoost? = null
 
-    /** True once the platform accepted global (session 0) audio effects on this device. */
+    /** True once the platform accepted a global (session 0) Equalizer on this device. */
     val isAvailable: Boolean
         get() = equalizer != null
 
+    /** True once the platform accepted a global (session 0) BassBoost on this device. */
+    val isBassBoostAvailable: Boolean
+        get() = bassBoost != null
+
     data class BandInfo(val index: Int, val centerFreqHz: Int, val minLevelMb: Int, val maxLevelMb: Int)
 
-    /** Safe to call repeatedly (from both the Activity and the service) — only creates once. */
+    /**
+     * Safe to call repeatedly (from both the Activity and the service) — only creates once.
+     *
+     * Equalizer and BassBoost are created independently: some OEM audio HALs accept a global
+     * Equalizer but reject BassBoost (or vice versa), and they used to be created inside one
+     * shared try/catch — a single BassBoost failure was silently discarding an Equalizer that
+     * had already been created successfully, which is likely why some phones reported the whole
+     * feature as "недоступен" when only one half of it actually was.
+     */
     fun ensureInitialized() {
-        if (equalizer != null) return
-        runCatching {
-            val eq = Equalizer(0, 0).apply { enabled = false }
-            val bb = BassBoost(0, 0).apply { enabled = false }
-            equalizer = eq
-            bassBoost = bb
-        }.onFailure {
-            Log.w(TAG, "Global audio effects unavailable on this device: ${it.message}")
-            equalizer = null
-            bassBoost = null
+        if (equalizer == null) {
+            runCatching {
+                Equalizer(0, 0).apply { enabled = false }
+            }.onSuccess {
+                equalizer = it
+            }.onFailure {
+                Log.w(TAG, "Global Equalizer unavailable on this device (${it.javaClass.simpleName}): ${it.message}")
+                equalizer = null
+            }
+        }
+        if (bassBoost == null) {
+            runCatching {
+                BassBoost(0, 0).apply { enabled = false }
+            }.onSuccess {
+                bassBoost = it
+            }.onFailure {
+                Log.w(TAG, "Global BassBoost unavailable on this device (${it.javaClass.simpleName}): ${it.message}")
+                bassBoost = null
+            }
         }
     }
 

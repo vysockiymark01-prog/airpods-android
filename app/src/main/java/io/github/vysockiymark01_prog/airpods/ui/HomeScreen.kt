@@ -13,7 +13,10 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import android.content.Intent
 import android.net.Uri
+import androidx.compose.foundation.clickable
 import androidx.compose.material3.Button
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.TopAppBar
@@ -31,6 +34,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.unit.dp
 import io.github.vysockiymark01_prog.airpods.MainViewModel
+import io.github.vysockiymark01_prog.airpods.ble.AirPodsModel
 import io.github.vysockiymark01_prog.airpods.ble.AirPodsStatus
 import io.github.vysockiymark01_prog.airpods.ble.BatteryLevel
 import io.github.vysockiymark01_prog.airpods.ble.NoiseControlMode
@@ -69,9 +73,10 @@ fun HomeScreen(
             if (status == null) {
                 EmptyState(onRequestPermissions)
             } else {
-                Text(
-                    text = status.model.displayName,
-                    style = MaterialTheme.typography.headlineLarge,
+                ModelPicker(
+                    displayName = status.model.displayName,
+                    manualOverride = uiState.manualModelOverride,
+                    onPick = viewModel::setManualModelOverride,
                 )
                 Spacer(Modifier.height(4.dp))
                 Text(
@@ -116,6 +121,43 @@ fun HomeScreen(
 
             Spacer(Modifier.height(24.dp))
             ReportProblemButton()
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun ModelPicker(displayName: String, manualOverride: AirPodsModel?, onPick: (AirPodsModel?) -> Unit) {
+    var expanded by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(false) }
+    androidx.compose.foundation.layout.Box {
+        androidx.compose.foundation.layout.Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            modifier = Modifier.clickable { expanded = true },
+        ) {
+            Text(text = displayName, style = MaterialTheme.typography.headlineLarge)
+            Text(
+                text = if (manualOverride != null) "Модель выбрана вручную · нажмите, чтобы изменить" else "Определено автоматически · нажмите, чтобы изменить",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f),
+            )
+        }
+        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            DropdownMenuItem(
+                text = { Text(if (manualOverride == null) "✓ Авто (определять самостоятельно)" else "Авто (определять самостоятельно)") },
+                onClick = {
+                    onPick(null)
+                    expanded = false
+                },
+            )
+            AirPodsModel.entries.filter { it != AirPodsModel.UNKNOWN }.forEach { model ->
+                DropdownMenuItem(
+                    text = { Text(if (manualOverride == model) "✓ ${model.displayName}" else model.displayName) },
+                    onClick = {
+                        onPick(model)
+                        expanded = false
+                    },
+                )
+            }
         }
     }
 }

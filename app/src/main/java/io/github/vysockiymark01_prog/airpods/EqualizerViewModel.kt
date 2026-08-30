@@ -15,6 +15,7 @@ import kotlinx.coroutines.launch
 
 data class EqualizerUiState(
     val available: Boolean = false,
+    val bassBoostAvailable: Boolean = false,
     val bandCenterFreqHz: List<Int> = emptyList(),
     val bandLevelRangeMb: IntRange = -1500..1500,
     val state: EqualizerState = EqualizerState(),
@@ -31,6 +32,7 @@ class EqualizerViewModel(application: Application) : AndroidViewModel(applicatio
         val bands = SystemEqualizerController.bands()
         _uiState.value = _uiState.value.copy(
             available = SystemEqualizerController.isAvailable,
+            bassBoostAvailable = SystemEqualizerController.isBassBoostAvailable,
             bandCenterFreqHz = bands.map { it.centerFreqHz },
             bandLevelRangeMb = if (bands.isNotEmpty()) {
                 bands.first().minLevelMb..bands.first().maxLevelMb

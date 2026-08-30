@@ -54,7 +54,7 @@ fun EqualizerScreen(onBack: () -> Unit, viewModel: EqualizerViewModel = viewMode
             )
         },
     ) { padding ->
-        if (!uiState.available) {
+        if (!uiState.available && !uiState.bassBoostAvailable) {
             Column(
                 modifier = Modifier
                     .fillMaxSize()
@@ -65,6 +65,14 @@ fun EqualizerScreen(onBack: () -> Unit, viewModel: EqualizerViewModel = viewMode
                 Text(
                     "Системный эквалайзер недоступен на этом устройстве",
                     style = MaterialTheme.typography.bodyLarge,
+                )
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    "Прошивка вашего телефона не разрешает приложениям создавать общесистемные " +
+                        "звуковые эффекты — это ограничение производителя устройства, а не этого " +
+                        "приложения, и обойти его нельзя.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
                 )
             }
             return@Scaffold
@@ -107,34 +115,50 @@ fun EqualizerScreen(onBack: () -> Unit, viewModel: EqualizerViewModel = viewMode
             }
 
             Spacer(Modifier.height(24.dp))
-            Text("Бас-буст", style = MaterialTheme.typography.titleSmall)
-            Slider(
-                value = uiState.state.bassBoostStrength.toFloat(),
-                onValueChange = { viewModel.setBassBoost(it.toInt()) },
-                valueRange = 0f..1000f,
-            )
+            if (uiState.bassBoostAvailable) {
+                Text("Бас-буст", style = MaterialTheme.typography.titleSmall)
+                Slider(
+                    value = uiState.state.bassBoostStrength.toFloat(),
+                    onValueChange = { viewModel.setBassBoost(it.toInt()) },
+                    valueRange = 0f..1000f,
+                )
+            } else {
+                Text(
+                    "Бас-буст недоступен на этом устройстве (эквалайзер по полосам ниже всё равно работает)",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
+                )
+            }
 
             Spacer(Modifier.height(16.dp))
-            Text("Полосы эквалайзера", style = MaterialTheme.typography.titleSmall)
-            Spacer(Modifier.height(8.dp))
+            if (uiState.available) {
+                Text("Полосы эквалайзера", style = MaterialTheme.typography.titleSmall)
+                Spacer(Modifier.height(8.dp))
 
-            LazyColumn(modifier = Modifier.weight(1f)) {
-                items(uiState.bandCenterFreqHz.size) { index ->
-                    val freq = uiState.bandCenterFreqHz.getOrNull(index) ?: 0
-                    val level = uiState.state.bandLevelsMb.getOrElse(index) { 0 }
-                    Column(modifier = Modifier.padding(vertical = 4.dp)) {
-                        Text(
-                            text = "${formatFreq(freq)} · ${level / 100} дБ",
-                            style = MaterialTheme.typography.bodySmall,
-                        )
-                        Slider(
-                            value = level.toFloat(),
-                            onValueChange = { viewModel.setBandLevel(index, it.toInt()) },
-                            valueRange = uiState.bandLevelRangeMb.first.toFloat()..
-                                uiState.bandLevelRangeMb.last.toFloat(),
-                        )
+                LazyColumn(modifier = Modifier.weight(1f)) {
+                    items(uiState.bandCenterFreqHz.size) { index ->
+                        val freq = uiState.bandCenterFreqHz.getOrNull(index) ?: 0
+                        val level = uiState.state.bandLevelsMb.getOrElse(index) { 0 }
+                        Column(modifier = Modifier.padding(vertical = 4.dp)) {
+                            Text(
+                                text = "${formatFreq(freq)} · ${level / 100} дБ",
+                                style = MaterialTheme.typography.bodySmall,
+                            )
+                            Slider(
+                                value = level.toFloat(),
+                                onValueChange = { viewModel.setBandLevel(index, it.toInt()) },
+                                valueRange = uiState.bandLevelRangeMb.first.toFloat()..
+                                    uiState.bandLevelRangeMb.last.toFloat(),
+                            )
+                        }
                     }
                 }
+            } else {
+                Text(
+                    "Эквалайзер по полосам недоступен на этом устройстве (бас-буст выше всё равно работает)",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
+                )
             }
             Spacer(Modifier.height(16.dp))
         }
