@@ -20,6 +20,7 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.LifecycleService
 import androidx.lifecycle.lifecycleScope
 import io.github.vysockiymark01_prog.airpods.audio.EqualizerPreferences
+import io.github.vysockiymark01_prog.airpods.audio.PerSessionEqualizerController
 import io.github.vysockiymark01_prog.airpods.audio.SystemEqualizerController
 import kotlinx.coroutines.launch
 import io.github.vysockiymark01_prog.airpods.MainActivity
@@ -133,6 +134,7 @@ class AirPodsScanService : LifecycleService() {
             EqualizerPreferences.applyDefaultPresetIfFirstRun(applicationContext)
             EqualizerPreferences.flow(applicationContext).collect { state ->
                 SystemEqualizerController.apply(state)
+                PerSessionEqualizerController.applyToAll(state)
             }
         }
     }

@@ -6,6 +6,7 @@ import androidx.lifecycle.viewModelScope
 import io.github.vysockiymark01_prog.airpods.audio.EqualizerPreferences
 import io.github.vysockiymark01_prog.airpods.audio.EqualizerPreset
 import io.github.vysockiymark01_prog.airpods.audio.EqualizerState
+import io.github.vysockiymark01_prog.airpods.audio.PerSessionEqualizerController
 import io.github.vysockiymark01_prog.airpods.audio.SystemEqualizerController
 import io.github.vysockiymark01_prog.airpods.audio.resampleCurve
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -13,9 +14,14 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 
+/** Standard AOSP 5-band frequencies — used for the slider labels only when the platform refuses a
+ *  global effect and there's no real device to query band metadata from yet (see [perSessionActiveCount]). */
+private val FALLBACK_BAND_FREQS_HZ = listOf(60, 230, 910, 3600, 14000)
+
 data class EqualizerUiState(
     val available: Boolean = false,
     val bassBoostAvailable: Boolean = false,
+    val perSessionActiveCount: Int = 0,
     val bandCenterFreqHz: List<Int> = emptyList(),
     val bandLevelRangeMb: IntRange = -1500..1500,
     val state: EqualizerState = EqualizerState(),
@@ -33,7 +39,7 @@ class EqualizerViewModel(application: Application) : AndroidViewModel(applicatio
         _uiState.value = _uiState.value.copy(
             available = SystemEqualizerController.isAvailable,
             bassBoostAvailable = SystemEqualizerController.isBassBoostAvailable,
-            bandCenterFreqHz = bands.map { it.centerFreqHz },
+            bandCenterFreqHz = bands.map { it.centerFreqHz }.ifEmpty { FALLBACK_BAND_FREQS_HZ },
             bandLevelRangeMb = if (bands.isNotEmpty()) {
                 bands.first().minLevelMb..bands.first().maxLevelMb
             } else {
@@ -50,6 +56,11 @@ class EqualizerViewModel(application: Application) : AndroidViewModel(applicatio
                     ),
                 )
                 _uiState.value = _uiState.value.copy(state = normalized)
+            }
+        }
+        viewModelScope.launch {
+            PerSessionEqualizerController.activeSessionCount.collect { count ->
+                _uiState.value = _uiState.value.copy(perSessionActiveCount = count)
             }
         }
     }
@@ -76,11 +87,16 @@ class EqualizerViewModel(application: Application) : AndroidViewModel(applicatio
         }
     }
 
-    /** Applies immediately (same process as the foreground service) and persists for next boot. */
+    /**
+     * Applies immediately to whatever effects are already live in THIS process — the global one
+     * (if the platform allows it) and every currently-open per-app session — and persists so the
+     * foreground service (and any session that opens later) picks it up too.
+     */
     private fun update(transform: (EqualizerState) -> EqualizerState) {
         val next = transform(_uiState.value.state)
         _uiState.value = _uiState.value.copy(state = next)
         SystemEqualizerController.apply(next)
+        PerSessionEqualizerController.applyToAll(next)
         viewModelScope.launch { EqualizerPreferences.save(getApplication(), next) }
     }
 }

@@ -34,8 +34,13 @@ import io.github.vysockiymark01_prog.airpods.audio.EqualizerPreset
 
 /**
  * Global (system-level) audio boost, separate from the per-earbud ANC control on [HomeScreen] —
- * see [io.github.vysockiymark01_prog.airpods.audio.SystemEqualizerController] for what this
+ * see [io.github.vysockiymark01_prog.airpods.audio.SystemEqualizerController] and
+ * [io.github.vysockiymark01_prog.airpods.audio.PerSessionEqualizerController] for what this
  * actually does and, honestly, what it doesn't (it is not Apple's Adaptive Audio).
+ *
+ * The controls below are always shown and always usable — even on a device where the platform
+ * refuses a global effect, adjusting anything here still works the moment a compatible app starts
+ * playing (see [StatusBanner]), so there's no dead end.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -54,30 +59,6 @@ fun EqualizerScreen(onBack: () -> Unit, viewModel: EqualizerViewModel = viewMode
             )
         },
     ) { padding ->
-        if (!uiState.available && !uiState.bassBoostAvailable) {
-            Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(padding)
-                    .padding(24.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
-            ) {
-                Text(
-                    "Системный эквалайзер недоступен на этом устройстве",
-                    style = MaterialTheme.typography.bodyLarge,
-                )
-                Spacer(Modifier.height(8.dp))
-                Text(
-                    "Прошивка вашего телефона не разрешает приложениям создавать общесистемные " +
-                        "звуковые эффекты — это ограничение производителя устройства, а не этого " +
-                        "приложения, и обойти его нельзя.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
-                )
-            }
-            return@Scaffold
-        }
-
         Column(
             modifier = Modifier
                 .fillMaxSize()
@@ -86,13 +67,16 @@ fun EqualizerScreen(onBack: () -> Unit, viewModel: EqualizerViewModel = viewMode
         ) {
             Spacer(Modifier.height(8.dp))
             Text(
-                "Действует на весь звук телефона (не только в этом приложении) и продолжает " +
-                    "работать, пока приложение хотя бы раз открывалось после перезагрузки — " +
-                    "компенсирует тусклый звук AirPods без фирменной обработки Apple. Это " +
-                    "программный эквалайзер уровня Android, а не персонализированный звук с " +
-                    "чипа наушников — стоит воспринимать его именно так.",
+                "Действует на весь звук телефона (не только в этом приложении). Это программный " +
+                    "эквалайзер уровня Android, а не персонализированный звук с чипа наушников — " +
+                    "приближает звучание к более яркой заводской подаче iPhone, но не более того.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
+            )
+            Spacer(Modifier.height(12.dp))
+            StatusBanner(
+                globalAvailable = uiState.available || uiState.bassBoostAvailable,
+                activeSessions = uiState.perSessionActiveCount,
             )
             Spacer(Modifier.height(16.dp))
 
@@ -115,54 +99,56 @@ fun EqualizerScreen(onBack: () -> Unit, viewModel: EqualizerViewModel = viewMode
             }
 
             Spacer(Modifier.height(24.dp))
-            if (uiState.bassBoostAvailable) {
-                Text("Бас-буст", style = MaterialTheme.typography.titleSmall)
-                Slider(
-                    value = uiState.state.bassBoostStrength.toFloat(),
-                    onValueChange = { viewModel.setBassBoost(it.toInt()) },
-                    valueRange = 0f..1000f,
-                )
-            } else {
-                Text(
-                    "Бас-буст недоступен на этом устройстве (эквалайзер по полосам ниже всё равно работает)",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
-                )
-            }
+            Text("Бас-буст", style = MaterialTheme.typography.titleSmall)
+            Slider(
+                value = uiState.state.bassBoostStrength.toFloat(),
+                onValueChange = { viewModel.setBassBoost(it.toInt()) },
+                valueRange = 0f..1000f,
+            )
 
             Spacer(Modifier.height(16.dp))
-            if (uiState.available) {
-                Text("Полосы эквалайзера", style = MaterialTheme.typography.titleSmall)
-                Spacer(Modifier.height(8.dp))
+            Text("Полосы эквалайзера", style = MaterialTheme.typography.titleSmall)
+            Spacer(Modifier.height(8.dp))
 
-                LazyColumn(modifier = Modifier.weight(1f)) {
-                    items(uiState.bandCenterFreqHz.size) { index ->
-                        val freq = uiState.bandCenterFreqHz.getOrNull(index) ?: 0
-                        val level = uiState.state.bandLevelsMb.getOrElse(index) { 0 }
-                        Column(modifier = Modifier.padding(vertical = 4.dp)) {
-                            Text(
-                                text = "${formatFreq(freq)} · ${level / 100} дБ",
-                                style = MaterialTheme.typography.bodySmall,
-                            )
-                            Slider(
-                                value = level.toFloat(),
-                                onValueChange = { viewModel.setBandLevel(index, it.toInt()) },
-                                valueRange = uiState.bandLevelRangeMb.first.toFloat()..
-                                    uiState.bandLevelRangeMb.last.toFloat(),
-                            )
-                        }
+            LazyColumn(modifier = Modifier.weight(1f)) {
+                items(uiState.bandCenterFreqHz.size) { index ->
+                    val freq = uiState.bandCenterFreqHz.getOrNull(index) ?: 0
+                    val level = uiState.state.bandLevelsMb.getOrElse(index) { 0 }
+                    Column(modifier = Modifier.padding(vertical = 4.dp)) {
+                        Text(
+                            text = "${formatFreq(freq)} · ${level / 100} дБ",
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                        Slider(
+                            value = level.toFloat(),
+                            onValueChange = { viewModel.setBandLevel(index, it.toInt()) },
+                            valueRange = uiState.bandLevelRangeMb.first.toFloat()..
+                                uiState.bandLevelRangeMb.last.toFloat(),
+                        )
                     }
                 }
-            } else {
-                Text(
-                    "Эквалайзер по полосам недоступен на этом устройстве (бас-буст выше всё равно работает)",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
-                )
             }
             Spacer(Modifier.height(16.dp))
         }
     }
+}
+
+@Composable
+private fun StatusBanner(globalAvailable: Boolean, activeSessions: Int) {
+    val (text, color) = when {
+        globalAvailable -> "✓ Работает на уровне всей системы" to MaterialTheme.colorScheme.primary
+        activeSessions > 0 -> "✓ Сейчас применяется к воспроизведению (активных приложений: $activeSessions)" to
+            MaterialTheme.colorScheme.primary
+        else -> (
+            "Общесистемный режим недоступен на этом устройстве (ограничение прошивки телефона). " +
+                "Настройте всё здесь как обычно — эффект автоматически включится, как только вы " +
+                "начнёте воспроизведение в большинстве плееров (YouTube Music, Spotify, штатный " +
+                "проигрыватель и т.п.) — просто откройте там музыку. Приложения, которые не " +
+                "поддерживают эту системную функцию, звучать иначе не станут — это их " +
+                "собственное ограничение, а не этого приложения."
+            ) to MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+    }
+    Text(text, style = MaterialTheme.typography.bodySmall, color = color)
 }
 
 private fun formatFreq(hz: Int): String =
