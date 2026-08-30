@@ -4,12 +4,14 @@ package io.github.vysockiymark01_prog.airpods.ble
  * Apple "Proximity Pairing" (message type 0x07) device-model IDs, as documented by independent
  * reverse-engineering projects (OpenPods, AAP/librepods, capod — see README "Источники протокола").
  *
- * IMPORTANT: AirPods Pro 3 is NOT in this table. As of the time this was written, no
- * community reverse-engineering project has published a confirmed model ID or ANC command
- * set for it — see README "Известные ограничения". Devices with an unrecognized ID still get
- * battery + ear-detection support (that part of the packet format is model-independent); they
- * just fall back to a generic silhouette/icon and ANC switching is disabled until the ID is
- * added to [REMOTE_OVERRIDE placeholder] or a future app update.
+ * IMPORTANT: [AIRPODS_PRO_3]'s real broadcast ID is NOT known. As of the time this was written,
+ * no community reverse-engineering project has published a confirmed model ID or ANC command set
+ * for it — see README "Известные ограничения". It's listed here with a sentinel ID purely so it
+ * can be picked from the manual model-override list (see [io.github.vysockiymark01_prog.airpods.ble.ModelOverridePreferences])
+ * — auto-detection can never assign it by itself. Any device with a genuinely unrecognized ID
+ * (Pro 3 included, until its real ID is confirmed) still gets battery + ear-detection support
+ * (that part of the packet format is model-independent); it just falls back to [UNKNOWN]'s
+ * generic silhouette/icon and ANC switching is disabled until the real ID is added here.
  */
 enum class AirPodsModel(
     val modelId: Int,
@@ -27,6 +29,13 @@ enum class AirPodsModel(
     AIRPODS_PRO_1(0x0E20, "AirPods Pro", hasStem = true, supportsAnc = true),
     AIRPODS_PRO_2_LIGHTNING(0x1420, "AirPods Pro 2", hasStem = true, supportsAnc = true),
     AIRPODS_PRO_2_USBC(0x2420, "AirPods Pro 2 (USB‑C)", hasStem = true, supportsAnc = true),
+
+    /**
+     * Manual-selection-only placeholder — see the class doc. -100 is a sentinel that can never
+     * come from a real broadcast (Apple's ID field is always 0x0000..0xFFFF), so auto-detection
+     * can never assign this by mistake; update to the real ID once one is confirmed publicly.
+     */
+    AIRPODS_PRO_3(-100, "AirPods Pro 3", hasStem = true, supportsAnc = true),
 
     UNKNOWN(-1, "Наушники Apple", hasStem = true, supportsAnc = false);
 

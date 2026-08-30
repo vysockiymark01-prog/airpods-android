@@ -100,6 +100,17 @@ fun HomeScreen(
                     BatteryIndicator("Кейс", status.caseBattery, status.caseCharging)
                 }
 
+                if (!status.leftInCase && !status.rightInCase) {
+                    Spacer(Modifier.height(12.dp))
+                    Text(
+                        text = "Наушники сейчас не в кейсе — его заряд сам кейс передаёт им только " +
+                            "через контакты внутри, поэтому цифра может быть устаревшей до тех пор, " +
+                            "пока наушники снова не окажутся в кейсе",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f),
+                    )
+                }
+
                 Spacer(Modifier.height(40.dp))
 
                 if (status.model.supportsAnc) {
